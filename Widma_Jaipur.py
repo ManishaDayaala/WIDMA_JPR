@@ -26,7 +26,7 @@ def set_random_seed(seed_value=42):
     tf.random.set_seed(seed_value)
 
 # Define the main folder path
-MAINFOLDER = r"D:\APPdata_WIDMA_Jaipur"
+MAINFOLDER = r"./APPdata_WIDMA_Jaipur"
 
 # Create other paths relative to the main folder
 training_file_path = os.path.join(MAINFOLDER, "Training", "Training_WIDMA.xlsx")  # FIXED TRAINING DATA
