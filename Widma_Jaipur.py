@@ -564,7 +564,7 @@ st.title("Time Prediction")
 #....CHANGED........................................................................................................................................
 
 
-if st.button("Predict Time"), disabled=not st.session_state["check_bd_clicked"]):
+if st.button(("Predict Time"), disabled=not st.session_state["check_bd_clicked"]):
     if st.session_state["bd_output"] == "No BD predicted":
         st.error("No breakdown predicted. Cannot proceed with time prediction.")
     else:
