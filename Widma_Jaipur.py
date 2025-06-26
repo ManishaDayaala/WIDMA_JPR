@@ -112,18 +112,15 @@ if st.button("Save Files"):
 ################# data preprocessing         ###################
 
 
-import os
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import streamlit as st
+def process_data():
+    
+    # Define the input file (only one file in the folder)
+    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
+    input_file_path = os.path.join(folderpath, input_file_name)
 
-def process_all_files():
-    # Get list of all Excel files in the folder
-    excel_files = [file for file in os.listdir(folderpath) if file.endswith(('.xlsx', '.xls'))]
-
-    if not excel_files:
-        st.error("No Excel files found in the folder!")
+    # Check if the input file exists
+    if not os.path.isfile(input_file_path):
+        st.error(f"Input file '{input_file_name}' does not exist!")
         return
 
     # List of 12 unique asset names
@@ -134,84 +131,94 @@ def process_all_files():
         "Spindle Bed Ball Nut."]
 
     # Columns to extract for each asset, corresponding to F, I, L, O, R, U
-    required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
+    #required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
+    required_column_indices = [6, 7, 8, 9, 10]  # 0-based indices for F, I, L, O, R, U
     required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
 
 
-   # Master output DataFrame
-    master_df = pd.DataFrame()
+    # Load the input file
+    input_df = pd.read_excel(input_file_path)
 
-    # Process each file
-    for input_file_name in excel_files:
-        input_file_path = os.path.join(folderpath, input_file_name)
-        try:
-            input_df = pd.read_excel(input_file_path)
-        except Exception as e:
-            st.warning(f"Could not read file {input_file_name}: {e}")
-            continue
+        # Initialize variables
+    # Initialize an empty DataFrame to store combined data
+    output_df = pd.DataFrame()
 
-        output_df = pd.DataFrame()
+    # Loop over each asset in assets_list
+    for asset_name in assets_list:
+        # Find rows where Column B (index 1) matches the asset_name
+        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
+        
+        # Check if any rows were found
+        if not asset_rows.empty:
+            # Parse the date and time from Column C (index 2)
+            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
 
-        for asset_name in assets_list:
-            asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
+            
+            
+            # Identify the earliest start time in the data for this asset
+            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
+            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
+            
+            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
+            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
+            
+            # Select only the first 49 rows if there are more than 49 available
+            filtered_rows = filtered_rows.head(49)
+            
+            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
+            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
+            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
+            
+            # Fill any missing rows with 0s if there are fewer than 49 rows
+            if len(data_for_asset) < 49:
+                missing_rows = 49 - len(data_for_asset)
+                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
+        else:
+            # If no rows found for this asset, fill with 0s for all columns
+            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
 
-            if not asset_rows.empty:
-                asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M', errors='coerce')
-                asset_rows = asset_rows.dropna(subset=['DateTime'])
+        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
+        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]#.................................................changes
 
-                if asset_rows.empty:
-                    continue
 
-                start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
-                end_time = start_time + timedelta(days=1)
 
-                filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
-                filtered_rows = filtered_rows.head(49)
+        # Concatenate the data for this asset horizontally to the output DataFrame
+        output_df = pd.concat([output_df, data_for_asset], axis=1)
 
-                data_for_asset = filtered_rows.iloc[:, required_column_indices].values
-                data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
+    # Generate Date, Time, and Sr No columns at 30-minute intervals
+    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
+    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
+    sr_no_list = list(range(1, 50))
 
-                if len(data_for_asset) < 49:
-                    missing_rows = 49 - len(data_for_asset)
-                    data_for_asset = pd.concat([
-                        data_for_asset,
-                        pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)
-                    ], ignore_index=True)
-            else:
-                data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
+    
 
-            data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]
-            output_df = pd.concat([output_df, data_for_asset], axis=1)
 
-        # Generate Date, Time, Sr No columns for this file
-        date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
-        time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
-        sr_no_list = list(range(1, 50))
+    # Insert Date, Time, and Sr No columns into the final output DataFrame
+    output_df.insert(0, 'Date', date_list)
+    output_df.insert(1, 'Time', time_list)
+    output_df.insert(2, 'Sr No', sr_no_list)
 
-        output_df.insert(0, 'Date', date_list)
-        output_df.insert(1, 'Time', time_list)
-        output_df.insert(2, 'Sr No', sr_no_list)
-        output_df['Code'] = 0
+    output_df['Code'] = 0
 
-        # Optional: Keep a column for source file name
-        #output_df['Source_File'] = input_file_name
 
-        master_df = pd.concat([master_df, output_df], ignore_index=True)
 
-    # Final sorting and saving
-    master_df['DateTime_Sort'] = pd.to_datetime(master_df['Date'] + ' ' + master_df['Time'], format='%d %b %Y %I:%M %p')
-    master_df = master_df.sort_values(by='DateTime_Sort').drop(columns=['DateTime_Sort'])
 
+    # Fill NaN values in the DataFrame with 0
+    output_df = output_df.fillna(0)
+
+
+    # Save the processed data using ExcelWriter
     with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
-        master_df.to_excel(writer, index=False)
+        output_df.to_excel(writer, index=False)
 
-    st.success(f"Processed {len(excel_files)} files and saved")
+    
+    # Display success message when all files are processed
+    st.info(f"Data has been processed and saved")
 
 
-# Streamlit UI
-if st.button('Preprocess All Files'):
-    process_all_files()
-
+# Create a button to trigger the process
+if st.button('Preprocess Data'):
+    process_data()
 
 
 ##########################  Classification ###############################
